@@ -1,0 +1,36 @@
+[package]
+name = "unbundio-vault"
+version = "0.1.0"
+edition = "2021"
+description = "unbundio-vault — local-first, free password manager. Clean-room alternative for users forced off paid password SaaS."
+license = "MIT"
+repository = "https://github.com/illuwa/unbundio-vault"
+keywords = ["password", "vault", "security", "cli", "local-first"]
+categories = ["command-line-utilities", "cryptography"]
+
+[[bin]]
+name = "unbundio-vault"
+path = "src/main.rs"
+
+[lib]
+name = "unbundio_vault"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+argon2 = "0.5"
+aes-gcm = "0.10"
+rand = "0.8"
+rpassword = "7"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+csv = "1"
+zeroize = "1"
+
+[dev-dependencies]
+tempfile = "3"
