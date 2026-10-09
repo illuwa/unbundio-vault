@@ -249,12 +249,152 @@ pub fn manifest_paths(browser: &str) -> Vec<String> {
     }
 }
 
+/// Default manifest install path for this OS (first candidate that fits).
+/// Returns `None` when $HOME is unavailable.
+pub fn default_install_path(browser: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let home = Path::new(&home);
+    let rel: &str = match (std::env::consts::OS, browser.to_lowercase().as_str()) {
+        ("macos", "firefox") => {
+            "Library/Application Support/Mozilla/NativeMessagingHosts/com.unbundio.vault.json"
+        }
+        ("macos", _) => {
+            "Library/Application Support/Google/Chrome/NativeMessagingHosts/com.unbundio.vault.json"
+        }
+        (_, "firefox") => ".mozilla/native-messaging-hosts/com.unbundio.vault.json",
+        (_, _) => ".config/google-chrome/NativeMessagingHosts/com.unbundio.vault.json",
+    };
+    Some(home.join(rel))
+}
+
+/// Write the manifest file. Refuses to overwrite unless `force`.
+/// Returns the destination path.
+pub fn install_manifest(
+    browser: &str,
+    extension_id: &str,
+    binary: &str,
+    dest: &Path,
+    force: bool,
+) -> Result<PathBuf> {
+    if dest.exists() && !force {
+        bail!(
+            "already installed at {}; re-run with --force to overwrite",
+            dest.display()
+        );
+    }
+    let m = manifest(browser, extension_id, binary)?;
+    let text = serde_json::to_string_pretty(&m).context("host: encode manifest")?;
+    if let Some(parent) = dest.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("host: create {}", parent.display()))?;
+        }
+    }
+    std::fs::write(dest, text).with_context(|| format!("host: write {}", dest.display()))?;
+    // Sanity: the file we wrote must parse back.
+    let back: Value = serde_json::from_str(
+        &std::fs::read_to_string(dest)
+            .with_context(|| format!("host: re-read {}", dest.display()))?,
+    )
+    .context("host: verify manifest")?;
+    if back.get("name") != Some(&json!(HOST_NAME)) {
+        bail!("host: manifest verification failed");
+    }
+    Ok(dest.to_path_buf())
+}
+
+/// Config dir for host-side secrets: $XDG_CONFIG_HOME/unbundio-vault
+/// (fallback ~/.config/unbundio-vault).
+pub fn config_dir() -> Option<PathBuf> {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.trim().is_empty() {
+            return Some(Path::new(&xdg).join("unbundio-vault"));
+        }
+    }
+    let home = std::env::var("HOME").ok()?;
+    Some(Path::new(&home).join(".config").join("unbundio-vault"))
+}
+
+/// Path of the stored host password file (mode 0600).
+pub fn stored_password_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("host-password"))
+}
+
+/// Read the stored host password. `Ok(None)` = not configured.
+/// Refuses files readable by group/others (unix) — fix with `chmod 600`.
+pub fn read_stored_password() -> Result<Option<String>> {
+    let Some(path) = stored_password_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta =
+            std::fs::metadata(&path).with_context(|| format!("host: stat {}", path.display()))?;
+        if meta.permissions().mode() & 0o077 != 0 {
+            bail!(
+                "host password file {} is readable by others; run: chmod 600 {}",
+                path.display(),
+                path.display()
+            );
+        }
+    }
+    let raw =
+        std::fs::read_to_string(&path).with_context(|| format!("host: read {}", path.display()))?;
+    let pw = raw.trim_end_matches(['\n', '\r']).to_string();
+    if pw.is_empty() {
+        bail!("host password file {} is empty", path.display());
+    }
+    Ok(Some(pw))
+}
+
+/// Store the host password with mode 0600 (creates the config dir).
+/// Overwrites only with `force`.
+pub fn store_password(password: &str, force: bool) -> Result<PathBuf> {
+    let path = stored_password_path().context("host: no config dir ($HOME?)")?;
+    if password.is_empty() {
+        bail!("password must not be empty");
+    }
+    if path.exists() && !force {
+        bail!(
+            "already stored at {}; remove it or re-run with --force",
+            path.display()
+        );
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("host: create {}", parent.display()))?;
+    }
+    std::fs::write(&path, password).with_context(|| format!("host: write {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("host: chmod {}", path.display()))?;
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vault::NewEntry;
     use std::io::Cursor;
     use tempfile::NamedTempFile;
+
+    /// Tests below mutate process env (XDG_CONFIG_HOME); lib tests run in
+    /// parallel threads, so env-mutating tests must hold this lock.
+    #[cfg(test)]
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        ENV_GUARD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     fn fixture() -> (NamedTempFile, PathBuf, String) {
         let f = NamedTempFile::new().expect("tmp");
@@ -355,5 +495,74 @@ mod tests {
         let f = manifest("firefox", "vault@unbundio", "/usr/local/bin/unbundio-vault").expect("m");
         assert_eq!(f["allowed_extensions"], json!(["vault@unbundio"]));
         assert!(manifest("safari", "x", "/bin").is_err());
+    }
+
+    #[test]
+    fn install_roundtrip_and_refuses_overwrite() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let dest = dir.path().join("sub").join("com.unbundio.vault.json");
+        let got = install_manifest("chrome", "ext123", "/bin/unbundio-vault", &dest, false)
+            .expect("install");
+        assert_eq!(got, dest);
+        let back: Value =
+            serde_json::from_str(&std::fs::read_to_string(&dest).expect("read")).expect("json");
+        assert_eq!(
+            back["allowed_origins"],
+            json!(["chrome-extension://ext123/"])
+        );
+        assert!(install_manifest("chrome", "ext123", "/bin/unbundio-vault", &dest, false).is_err());
+        assert!(install_manifest("chrome", "other", "/bin/unbundio-vault", &dest, true).is_ok());
+    }
+
+    #[test]
+    fn default_path_mentions_host_file() {
+        let p = default_install_path("chrome").expect("path");
+        assert!(p.ends_with("com.unbundio.vault.json"));
+    }
+
+    #[test]
+    fn stored_password_roundtrip() {
+        let _guard = lock_env();
+        let dir = tempfile::tempdir().expect("tmpdir");
+        // Redirect config home so the test never touches the real one.
+        let prev = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+        let res = (|| -> Result<()> {
+            assert!(read_stored_password()?.is_none());
+            let saved = store_password("s3cret-host", false)?;
+            assert_eq!(read_stored_password()?.as_deref(), Some("s3cret-host"));
+            assert!(store_password("other", false).is_err());
+            assert!(store_password("other", true).is_ok());
+            assert_eq!(read_stored_password()?.as_deref(), Some("other"));
+            let _ = &saved;
+            Ok(())
+        })();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+        }
+        res.expect("roundtrip");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stored_password_refuses_loose_perms() {
+        let _guard = lock_env();
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let prev = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+        let res = (|| -> Result<()> {
+            let saved = store_password("s3cret-host", false)?;
+            std::fs::set_permissions(&saved, std::fs::Permissions::from_mode(0o644))
+                .expect("chmod");
+            assert!(read_stored_password().is_err());
+            Ok(())
+        })();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+        }
+        res.expect("perms test");
     }
 }

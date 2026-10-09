@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>unbundio-vault</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { width: 320px; margin: 0; padding: 10px 12px 12px; font: 13px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+  h1 span { opacity: .55; font-weight: 400; }
+  #q { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-bottom: 8px; }
+  #list { max-height: 300px; overflow-y: auto; }
+  .row { display: flex; gap: 8px; align-items: center; padding: 7px 6px; border-top: 1px solid #8883; }
+  .row .meta { flex: 1; min-width: 0; }
+  .row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .u { opacity: .65; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row button { flex: none; padding: 4px 8px; cursor: pointer; }
+  #status { margin-top: 8px; min-height: 1.4em; font-size: 12px; opacity: .8; }
+  #status.err { color: #c0392b; }
+</style>
+</head>
+<body>
+  <h1>unbundio-vault <span>local · no cloud</span></h1>
+  <input id="q" type="search" placeholder="Search logins…" autocomplete="off">
+  <div id="list"></div>
+  <div id="status" role="status"></div>
+  <script src="native.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

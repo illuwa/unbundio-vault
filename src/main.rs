@@ -26,14 +26,21 @@ fn default_vault_path(arg: Option<PathBuf>) -> PathBuf {
 }
 
 /// Master password resolution order:
-/// 1. $UNBUNDIO_VAULT_PASSWORD  2. --password-file  3. interactive prompt (no echo)
+/// 1. $UNBUNDIO_VAULT_PASSWORD  2. --password-file / $UNBUNDIO_VAULT_PASSWORD_FILE
+/// 3. stored host-password file (0600)  4. interactive prompt (no echo)
 fn read_password(password_file: Option<&Path>, confirm: bool) -> Result<String> {
     if let Ok(env) = std::env::var("UNBUNDIO_VAULT_PASSWORD") {
         if !env.is_empty() {
             return Ok(env);
         }
     }
-    if let Some(path) = password_file {
+    let file_arg: Option<PathBuf> = password_file.map(Path::to_path_buf).or_else(|| {
+        std::env::var("UNBUNDIO_VAULT_PASSWORD_FILE")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map(PathBuf::from)
+    });
+    if let Some(path) = file_arg.as_deref() {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("cannot read {}", path.display()))?;
         let pw = raw.trim_end_matches(['\n', '\r']).to_string();
@@ -42,8 +49,15 @@ fn read_password(password_file: Option<&Path>, confirm: bool) -> Result<String> 
         }
         return Ok(pw);
     }
+    if !confirm {
+        if let Some(pw) = host::read_stored_password().map_err(|e| anyhow::anyhow!("{e}"))? {
+            return Ok(pw);
+        }
+    }
     if !std::io::stdin().is_terminal() {
-        bail!("no TTY: set UNBUNDIO_VAULT_PASSWORD or --password-file");
+        bail!(
+            "no TTY and no stored password: set UNBUNDIO_VAULT_PASSWORD, use --password-file, or run `install-extension` (asks to save one)"
+        );
     }
     let pw = rpassword::prompt_password("Master password: ").context("read password")?;
     if confirm {
@@ -439,6 +453,60 @@ fn main() -> Result<()> {
                     eprintln!("  {p}");
                 }
             }
+        }
+        Command::InstallExtension {
+            browser,
+            extension_id,
+            binary,
+            force,
+            output,
+        } => {
+            let bin = match binary {
+                Some(p) => p.to_string_lossy().into_owned(),
+                None => std::env::current_exe()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .context("resolve current executable; pass --binary explicitly")?,
+            };
+            let dest = match output {
+                Some(p) => p,
+                None => host::default_install_path(&browser)
+                    .context("cannot locate manifest dir (no $HOME?); pass --output explicitly")?,
+            };
+            let written = host::install_manifest(&browser, &extension_id, &bin, &dest, force)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("installed host manifest to {}", written.display());
+            // The browser spawns the host without your shell env, so offer to
+            // save the host password (0600 file) for install-and-done autofill.
+            // Explicit consent: default is No.
+            let already = host::read_stored_password()
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .is_some();
+            if !already && std::io::stdin().is_terminal() {
+                let ans =
+                    prompt_line("Save host password for browser autofill (0600 file)? [y/N]")?;
+                if ans.eq_ignore_ascii_case("y") {
+                    let p1 =
+                        rpassword::prompt_password("Master password: ").context("read password")?;
+                    let p2 = rpassword::prompt_password("Confirm master password: ")
+                        .context("read password")?;
+                    if p1 != p2 {
+                        bail!("passwords do not match; host password NOT saved");
+                    }
+                    // Verify it actually unlocks this vault before storing.
+                    Vault::open(&vault_path, &p1)?;
+                    let saved =
+                        host::store_password(&p1, force).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    println!("saved (0600) to {}", saved.display());
+                } else {
+                    println!("skipped: set UNBUNDIO_VAULT_PASSWORD or --password-file,");
+                    println!("or the browser-spawned host will fail to unlock.");
+                }
+            }
+            println!("next:");
+            println!("  1. open chrome://extensions, enable Developer mode");
+            println!("  2. Load unpacked -> select this repo's extension/ folder");
+            println!("  3. copy its ID and re-run this command with --extension-id <ID> --force");
+            println!("  4. click the toolbar icon on any login page -> Fill");
         }
     }
     Ok(())

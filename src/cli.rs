@@ -137,4 +137,22 @@ pub enum Command {
         #[arg(long)]
         print_paths: bool,
     },
+    /// Install the browser host manifest (no server, just a JSON file)
+    InstallExtension {
+        /// chrome (covers Chromium/Edge/Brave) or firefox
+        #[arg(long, default_value = "chrome")]
+        browser: String,
+        /// Extension id from chrome://extensions (Developer mode)
+        #[arg(long)]
+        extension_id: String,
+        /// Host binary path (defaults to this executable)
+        #[arg(long)]
+        binary: Option<PathBuf>,
+        /// Overwrite an existing manifest
+        #[arg(long)]
+        force: bool,
+        /// Write here instead of the platform default (testing/custom browsers)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
 }

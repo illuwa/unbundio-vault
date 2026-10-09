@@ -102,6 +102,9 @@ password manager does.
 | `import --path export.csv` | Chrome/Dashlane/1Password CSV |
 | `audit [--json]` | weak / reused / old report |
 | `passwd` | change master password (re-encrypts) |
+| `host` | serve the browser over Native Messaging stdio |
+| `manifest --extension-id …` | print host manifest JSON |
+| `install-extension --extension-id …` | install manifest + optional 0600 host password |
 
 Global: `--vault <path>`, `--password-file <path>`, `--json`,
 `$UNBUNDIO_VAULT`, `$UNBUNDIO_VAULT_PASSWORD`.
@@ -127,8 +130,27 @@ Protocol: `{"id":1,"action":"ping"|"status"|"list"|"get"|"reload","id":"…","qu
 → `{"id":1,"ok":true,"result":{…}}` or `{"id":1,"ok":false,"error":"…"}`.
 Malformed frames get error responses (or a clean exit on EOF) — never a crash.
 
-Next (B-2): Chrome extension MVP (popup search → one-click fill) speaking
-this protocol. Then sync + mobile (see Roadmap).
+### Install-only setup (no server to run)
+
+```sh
+cargo install --path .                      # once: puts unbundio-vault on PATH
+unbundio-vault --vault ~/unbundio-vault.vault init   # once: create vault
+unbundio-vault install-extension --extension-id <ID from chrome://extensions>
+# -> writes the host manifest, then asks (default No) to save the host
+#    password in a 0600 file so the browser-spawned host can unlock unattended
+```
+
+Then in Chrome: Developer mode → Load unpacked → this repo's `extension/`
+folder → toolbar icon → Fill. Passwords are fetched per click; the browser
+never sees the master password.
+
+Trade-off, stated plainly: the 0600 host-password file means anyone who can
+already read your files can unlock the vault — same bar as the vault file
+itself, weaker than typing the password each time. Skip it and the host only
+unlocks via `$UNBUNDIO_VAULT_PASSWORD` / `--password-file` (e.g. launchd env).
+
+Next (B-2 done, needs a real-browser trial): Chrome extension MVP (popup
+search → one-click fill) speaking this protocol. Then sync + mobile (Roadmap).
 
 ## Development
 
@@ -141,7 +163,8 @@ cargo fmt --check
 ## Roadmap
 
 - [x] B-1 `host` (Native Messaging stdio) + `manifest` generator
-- [ ] B-2 Chrome extension MVP (popup search → one-click fill)
+- [x] B-2 Chrome extension MVP (`extension/`: popup search → Fill/Copy) + `install-extension` (no server, 0600 host password with consent)
+- [ ] Real-browser trial (load unpacked → Fill on a live login page)
 - [ ] C-1 sync (reuse keep-my-password relay or file-based)
 - [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] `totp` field + `get --totp` (RFC 6238, local clock)
