@@ -42,6 +42,14 @@ vault + generator + CSV migration + audit.
 
 ## Quick start
 
+**No Rust needed:** download
+`unbundio-vault-0.1.0-macos-universal.zip` from
+[Releases](https://github.com/illuwa/unbundio-vault/releases), unzip,
+`./install.sh` — full steps in `INSTALL.ko.md` (also at
+[`packaging/INSTALL.ko.md`](packaging/INSTALL.ko.md)). Free forever, MIT.
+
+From source:
+
 ```sh
 cargo build --release
 ./target/release/unbundio-vault init
