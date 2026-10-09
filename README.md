@@ -106,6 +106,30 @@ password manager does.
 Global: `--vault <path>`, `--password-file <path>`, `--json`,
 `$UNBUNDIO_VAULT`, `$UNBUNDIO_VAULT_PASSWORD`.
 
+## Browser integration (B-1: native host)
+
+No local TCP server — same model as KeePassXC's proxy: the browser spawns
+`unbundio-vault host` and speaks length-prefixed JSON over stdin/stdout
+(Chrome/Firefox Native Messaging framing). The browser never learns the
+master password; only `get` returns a password, `list`/`status` never do.
+
+```sh
+# 1. print the manifest for your extension id
+unbundio-vault manifest --browser chrome --extension-id <EXT_ID> \
+  --binary ~/.cargo/bin/unbundio-vault --print-paths \
+  > ~/Library/Application\ Support/Google/Chrome/NativeMessagingHosts/com.unbundio.vault.json
+
+# 2. the host needs the vault password from the environment, e.g. launchd:
+#    UNBUNDIO_VAULT=~/unbundio-vault.vault UNBUNDIO_VAULT_PASSWORD='…'
+```
+
+Protocol: `{"id":1,"action":"ping"|"status"|"list"|"get"|"reload","id":"…","query":"…"}`
+→ `{"id":1,"ok":true,"result":{…}}` or `{"id":1,"ok":false,"error":"…"}`.
+Malformed frames get error responses (or a clean exit on EOF) — never a crash.
+
+Next (B-2): Chrome extension MVP (popup search → one-click fill) speaking
+this protocol. Then sync + mobile (see Roadmap).
+
 ## Development
 
 ```sh
@@ -116,6 +140,10 @@ cargo fmt --check
 
 ## Roadmap
 
+- [x] B-1 `host` (Native Messaging stdio) + `manifest` generator
+- [ ] B-2 Chrome extension MVP (popup search → one-click fill)
+- [ ] C-1 sync (reuse keep-my-password relay or file-based)
+- [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] `totp` field + `get --totp` (RFC 6238, local clock)
 - [ ] `unbundio-vault serve --port` loopback autofill helper (Type-to-app stays manual until then)
 - [ ] Encrypted JSON backup with re-import integrity check

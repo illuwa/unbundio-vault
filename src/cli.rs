@@ -116,4 +116,25 @@ pub enum Command {
     Audit {},
     /// Change the master password (re-encrypts with fresh salt)
     Passwd {},
+    /// Serve the browser over Native Messaging stdio (spawned by the extension)
+    Host {
+        /// Ignored: browsers may append origin/window args; accepted for compat
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
+    },
+    /// Print a native-messaging host manifest for the browser to install
+    Manifest {
+        /// chrome (covers Chromium/Edge/Brave) or firefox
+        #[arg(long, default_value = "chrome")]
+        browser: String,
+        /// Extension id (chrome: store id; firefox: add-on id)
+        #[arg(long)]
+        extension_id: String,
+        /// Host binary path (defaults to this executable)
+        #[arg(long)]
+        binary: Option<PathBuf>,
+        /// Also print where to install the manifest file
+        #[arg(long)]
+        print_paths: bool,
+    },
 }

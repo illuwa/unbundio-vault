@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use unbundio_vault::{
     audit, csv_io,
     generator::GenOptions,
+    host,
     vault::{NewEntry, Vault},
 };
 
@@ -411,6 +412,33 @@ fn main() -> Result<()> {
             // Borrow dance: VaultData is Clone via derive.
             vault2.save(&new1)?;
             println!("master password changed");
+        }
+        Command::Host { .. } => {
+            // Browser-spawned: password must come from env/file (never the browser).
+            let pw = read_password(cli.password_file.as_deref(), false)?;
+            host::run(&vault_path, &pw)?;
+        }
+        Command::Manifest {
+            browser,
+            extension_id,
+            binary,
+            print_paths,
+        } => {
+            let bin = match binary {
+                Some(p) => p.to_string_lossy().into_owned(),
+                None => std::env::current_exe()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .context("resolve current executable; pass --binary explicitly")?,
+            };
+            let m = host::manifest(&browser, &extension_id, &bin)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{}", serde_json::to_string_pretty(&m).context("encode")?);
+            if print_paths {
+                eprintln!("install to one of:");
+                for p in host::manifest_paths(&browser) {
+                    eprintln!("  {p}");
+                }
+            }
         }
     }
     Ok(())
