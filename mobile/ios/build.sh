@@ -45,7 +45,7 @@ xcrun --sdk "$SDK" swiftc \
   -module-name UnbundioVault \
   -emit-module \
   -emit-module-path "$BUILD_DIR/UnbundioVault.swiftmodule" \
-  -import-objc-header "$ROOT/mobile/ios/UnbundioVault.h" \
-  "$ROOT/mobile/ios"/*.swift
+  -import-objc-header "$ROOT/mobile/ios/Sources/UnbundioVault.h" \
+  "$ROOT/mobile/ios/Sources"/*.swift
 
 echo "==> Swift shell compiles for $TRIPLE"

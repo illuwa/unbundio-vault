@@ -79,19 +79,16 @@ struct UnlockView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(28)
+        .task {
+            #if DEBUG
+            await model.unlockForUITestIfNeeded()
+            #endif
+            await model.autoUnlockOnLaunch()
+        }
     }
 
     /// Ask Face ID, then let Keychain hand back the stored master password.
     private func unlockWithBiometrics() async {
-        let ok = await Biometrics.authenticate(reason: "Unlock your vault")
-        guard ok else {
-            model.errorMessage = "Biometric unlock was cancelled."
-            return
-        }
-        guard let stored = KeychainVault.shared.masterPassword() else {
-            model.errorMessage = "No stored password for Face ID. Use your master password once to enable it."
-            return
-        }
-        await model.unlock(password: stored)
+        await model.unlockWithBiometrics()
     }
 }

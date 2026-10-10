@@ -88,4 +88,36 @@ final class VaultModel: ObservableObject {
         audit = nil
         search = ""
     }
+
+    /// Face ID straight after launch, the way the competition does it: you
+    /// should not have to tap a button before the prompt appears.
+    func autoUnlockOnLaunch() async {
+        guard !isUnlocked, !needsSetup else { return }
+        guard Biometrics.isAvailable, KeychainVault.shared.masterPassword() != nil else { return }
+        await unlockWithBiometrics()
+    }
+
+    func unlockWithBiometrics() async {
+        guard await Biometrics.authenticate(reason: "Unlock your vault") else {
+            errorMessage = "Biometric unlock was cancelled."
+            return
+        }
+        guard let stored = KeychainVault.shared.masterPassword() else {
+            errorMessage = "No stored password for Face ID. Use your master password once to enable it."
+            return
+        }
+        await unlock(password: stored)
+    }
+
+    /// DEBUG-only hook so the UI can be verified in a simulator, where there is
+    /// no keyboard to type a master password into. Compiled out of release
+    /// builds entirely, and only active when the launch environment names it.
+    #if DEBUG
+    func unlockForUITestIfNeeded() async {
+        guard !isUnlocked,
+              let pw = ProcessInfo.processInfo.environment["UV_UI_TEST_MASTER_PASSWORD"]
+        else { return }
+        await unlock(password: pw)
+    }
+    #endif
 }

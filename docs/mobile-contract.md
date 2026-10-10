@@ -48,20 +48,29 @@ The vault core cross-compiles for every phone target, enforced in CI
 producing a `.so` needs a platform linker even for `--lib`, which would break
 cross-compiling the core on a plain CI machine.
 
-## The iOS shell (built, not yet run)
+## The iOS shell (built and run in a simulator)
 
 [`mobile/ios/`](../mobile/ios) holds a SwiftUI app:
 
 - `UnlockView` — master password, plus **Face ID** unlock via `LocalAuthentication`
-  (the password is kept in the Keychain behind `WhenUnlockedThisDeviceOnly`)
-- `VaultListView` — search, audit badge, reveal sheet, 30-second clipboard clear
+  (the password is kept in the Keychain behind `WhenUnlockedThisDeviceOnly`).
+  Face ID is offered automatically at launch, the way competitors behave.
+- `VaultListView` — search (pinned to the navigation bar), audit badge,
+  reveal sheet, 30-second clipboard clear
 - `GeneratorView` — length control, copy
-- `build.sh sim|device` — builds the static library and compiles the Swift
-  against the C header, so a signature mistake fails outside Xcode
+- `project.yml` + XcodeGen → `UnbundioVault.xcodeproj` (generated, not
+  committed). `Info.plist` declares `NSFaceIDUsageDescription`.
+- `build.sh sim|device` builds the static library and compiles the Swift
+  against the C header, so a signature mistake fails outside Xcode.
 
-**Not done:** an Xcode project/Info.plist, code signing, and actually running it
-in a simulator. The Swift compiles and links conceptually, but nothing here has
-been launched on a device or simulator — do not assume the UI has been seen.
+**Verified by running it.** Built for the iOS 26.5 simulator, installed,
+launched, and screenshotted: the unlock screen renders; after unlocking, the
+list shows all entries with usernames, the audit badge reports the weak
+password, and search sits above the content. Two visual defects found this way
+were fixed — the search field was rendering at the bottom of the list, and rows
+were tinted accent blue instead of reading as content.
+
+Not done: signing, a device build, Android, and the OS autofill providers.
 
 ## What a native shell must still add
 
@@ -130,10 +139,8 @@ The intended flow avoids typing the master password on a phone:
 ## Honest status
 
 Built: the C ABI, four cross-compiled static libraries, and a SwiftUI shell
-that compiles for both the iOS simulator and device (Face ID unlock, search,
-reveal, copy, generator).
+that **runs** — built with XcodeGen, launched on the iOS 26.5 simulator, and
+screenshotted.
 
-Not built: an Xcode project or signing, **anything actually launched** on a
-simulator or device, the Android shell, OS autofill providers, and the pairing
-command. The Swift compiles; nobody has looked at the UI yet — do not assume
-the screens have been seen.
+Not built: signing, a real-device build, the Android shell, OS autofill
+providers, and the pairing command.

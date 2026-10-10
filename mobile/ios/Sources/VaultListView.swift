@@ -50,7 +50,11 @@ struct VaultListView: View {
                                     Image(systemName: "globe").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
+                            .contentShape(Rectangle())
                         }
+                        // Rows are tappable but should read as content, not as
+                        // accent-coloured buttons.
+                        .buttonStyle(.plain)
                     }
                 } header: {
                     Text("\(model.filtered.count) of \(model.entries.count)")
@@ -64,7 +68,13 @@ struct VaultListView: View {
                     }
                 }
             }
-            .searchable(text: $model.search, prompt: "Search logins")
+            // Pin the field to the navigation bar: without an explicit placement iOS 26
+// drops it to the bottom of the list, away from the content it filters.
+.searchable(
+                text: $model.search,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search logins"
+            )
             .navigationTitle("unbundio-vault")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

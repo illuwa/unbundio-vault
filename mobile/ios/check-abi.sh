@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 LIB="$ROOT/target/aarch64-apple-ios-sim/release/libunbundio_vault.a"
-HEADER="$ROOT/mobile/ios/UnbundioVault.h"
+HEADER="$ROOT/mobile/ios/Sources/UnbundioVault.h"
 
 [ -f "$LIB" ] || { echo "missing $LIB — run ./mobile/ios/build.sh sim" >&2; exit 1; }
 
