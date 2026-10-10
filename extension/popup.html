@@ -2,28 +2,70 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>unbundio-vault</title>
 <style>
   :root { color-scheme: light dark; }
-  body { width: 320px; margin: 0; padding: 10px 12px 12px; font: 13px/1.4 system-ui, sans-serif; }
-  h1 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
-  h1 span { opacity: .55; font-weight: 400; }
-  #q { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-bottom: 8px; }
-  #list { max-height: 300px; overflow-y: auto; }
-  .row { display: flex; gap: 8px; align-items: center; padding: 7px 6px; border-top: 1px solid #8883; }
-  .row .meta { flex: 1; min-width: 0; }
-  .row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row .u { opacity: .65; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row button { flex: none; padding: 4px 8px; cursor: pointer; }
-  #status { margin-top: 8px; min-height: 1.4em; font-size: 12px; opacity: .8; }
-  #status.err { color: #c0392b; }
+  * { box-sizing: border-box; }
+  body { width: 340px; margin: 0; padding: 10px 12px 12px;
+         font: 13px/1.4 system-ui, -apple-system, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+  h1 { font-size: 13px; margin: 0; font-weight: 650; }
+  .sub { opacity: .55; font-size: 11px; margin-left: auto; }
+  #q { width: 100%; padding: 7px 9px; border-radius: 6px; margin-bottom: 8px;
+       font-size: 13px; }
+  #list { max-height: 260px; overflow-y: auto; }
+  .row { display: flex; gap: 6px; align-items: center; padding: 6px;
+         border-radius: 6px; border-top: 1px solid #8882; }
+  .row.sel { background: #8881; }
+  .meta { flex: 1; min-width: 0; }
+  .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .u { opacity: .6; font-size: 11px; white-space: nowrap; overflow: hidden;
+       text-overflow: ellipsis; }
+  button { flex: none; padding: 4px 9px; cursor: pointer; border-radius: 5px;
+           font-size: 12px; border: 1px solid #8885; background: transparent;
+           color: inherit; }
+  button:hover { background: #8882; }
+  button.primary { border-color: transparent; background: #3b6ef5; color: #fff; }
+  /* generator */
+  #gen { display: none; gap: 6px; margin-bottom: 8px; align-items: center; }
+  #gen.open { display: flex; }
+  #genOut { flex: 1; font-family: ui-monospace, monospace; font-size: 12px;
+            padding: 6px 8px; border-radius: 6px; border: 1px solid #8884;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* footer */
+  footer { display: flex; gap: 6px; align-items: center; margin-top: 9px;
+           padding-top: 8px; border-top: 1px solid #8882; }
+  #audit { font-size: 11px; opacity: .7; flex: 1; }
+  #status { font-size: 11px; margin-top: 6px; min-height: 1.3em; opacity: .85; }
+  #status.err { color: #d33; }
+  .hint { font-size: 10px; opacity: .45; text-align: center; margin-top: 5px; }
+  .empty { padding: 10px 6px; opacity: .6; }
 </style>
 </head>
 <body>
-  <h1>unbundio-vault <span>local · no cloud</span></h1>
-  <input id="q" type="search" placeholder="Search logins…" autocomplete="off">
+  <header>
+    <h1>unbundio-vault</h1>
+    <span class="sub" id="count"></span>
+  </header>
+
+  <div id="gen">
+    <span id="genOut"></span>
+    <button id="genRegen" title="Regenerate">↻</button>
+    <button id="genCopy">Copy</button>
+  </div>
+
+  <input id="q" type="search" placeholder="Search logins…  (↑↓ to move, ⏎ to fill)"
+         autocomplete="off" spellcheck="false">
+
   <div id="list"></div>
+
+  <footer>
+    <span id="audit"></span>
+    <button id="genToggle" title="Password generator">⚄ Generate</button>
+  </footer>
+
   <div id="status" role="status"></div>
+  <div class="hint">local vault · no account · no cloud</div>
+
   <script src="native.js"></script>
   <script src="popup.js"></script>
 </body>

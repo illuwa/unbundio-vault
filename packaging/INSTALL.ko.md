@@ -42,6 +42,29 @@ cd unbundio-vault-0.1.0-macos-universal
 로그인 페이지에서 툴바 아이콘 → 해당 항목 **Fill**.
 비밀번호만 필요하면 **Copy**.
 
+↑↓로 항목 이동, ⏎로 채우기, ⚄ Generate로 비밀번호 생성(30초 뒤 클립보드 자동 삭제).
+
+### 반복 입력 없이 쓰기 (권장)
+
+```sh
+unbundio-vault keychain save
+```
+
+마스터 비밀번호를 macOS 키체인에 넣습니다. 이후 브라우저가 호스트를 띄울 때
+비밀번호를 다시 묻지 않습니다(터미널·암호 없이 pw-less).
+
+해제하려면: `unbundio-vault keychain delete`
+
+### 두 기기에서 쓰기
+
+공유 폴더(iCloudrive, Syncthing, USB 아무 곳)를 지정합니다:
+
+```sh
+unbundio-vault sync "~/Library/Mobile Documents/com.unbundio.vault/sync.vault"
+```
+
+암호문만 오가므로 폴더 제공자는 내용을 볼 수 없습니다.
+
 ## 삭제
 
 ```sh

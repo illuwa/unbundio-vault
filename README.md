@@ -109,6 +109,7 @@ password manager does.
 | `export --format csv\|json --out` | plaintext backup (warns) |
 | `import --path export.csv` | Chrome/Dashlane/1Password CSV |
 | `audit [--json]` | weak / reused / old report |
+| `keychain save\|delete\|status` | password-less unlock in the macOS keychain |
 | `passwd` | change master password (re-encrypts) |
 | `backup [--dir DIR]` | timestamped copy of the encrypted vault |
 | `sync <REMOTE> [--direction]` | push/pull/both against a shared encrypted vault file |
@@ -150,6 +151,10 @@ No local TCP server — same model as KeePassXC's proxy: the browser spawns
 (Chrome/Firefox Native Messaging framing). The browser never learns the
 master password; only `get` returns a password, `list`/`status` never do.
 
+Because the native-messaging manifest cannot pass a subcommand, the binary
+also accepts the browser's raw invocation form — `unbundio-vault
+chrome-extension://<id>/` behaves exactly like `unbundio-vault host`.
+
 ```sh
 # 1. print the manifest for your extension id
 unbundio-vault manifest --browser chrome --extension-id <EXT_ID> \
@@ -189,10 +194,18 @@ search → one-click fill) speaking this protocol. Then sync + mobile (Roadmap).
 ## Development
 
 ```sh
-cargo test        # 13 tests: crypto roundtrip, generator, vault, csv, audit
-cargo clippy -- -D warnings
+cargo test                       # 30 tests: crypto, generator, vault, csv, audit, host, sync, keychain
+cargo clippy --all-targets
 cargo fmt --check
+node tests/browser-fill.mjs      # browser e2e (needs playwright; see below)
 ```
+
+`tests/browser-fill.mjs` boots a real Chromium with the extension loaded and
+proves the whole chain: host spawn → stdio protocol → decrypted list → content
+script filling a real login form → popup rendering. It needs `npm i -D
+playwright` (or `PLAYWRIGHT_DIR` pointing at an existing install). One hop
+cannot be automated and is verified by hand instead: the **toolbar click**
+that grants `activeTab`, which Chrome only grants from a real user gesture.
 
 ## Roadmap
 
@@ -203,9 +216,15 @@ cargo fmt --check
 - [x] C-1 sync: file-based `sync push/pull` over any shared folder — no unbundio
       server, no accounts. (Rejected relay reuse: keep-my-password's relay needs
       accounts + billing, which would break this project's free-forever promise.)
-      Merge = union by entry id, newer `updated_at` wins.
-- [ ] Conflict UX: report same-entry conflicts instead of silently last-writer-wins
-- [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
+      Merge = union by entry id, newer `updated_at` wins, conflicts reported.
+- [x] sync conflict reporting (same-entry edits are named, not silently dropped)
+- [x] pw-less unlock via the macOS keychain (`keychain save`), no crate deps
+- [x] popup: generator, audit summary, keyboard navigation, autoselect by site
+- [x] browser e2e harness (`tests/browser-fill.mjs`, 14 checks in real Chromium)
+- [ ] C-2 mobile. Foundation first: the vault file, the stdio protocol and the
+      sync file format are already platform-neutral, so a mobile client needs
+      no server — but it still needs a native shell (biometrics, OS autofill
+      provider) and a signing pipeline. Sized as its own milestone, not a patch.
 - [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] `totp` field + `get --totp` (RFC 6238, local clock)
 - [ ] `unbundio-vault serve --port` loopback autofill helper (Type-to-app stays manual until then)

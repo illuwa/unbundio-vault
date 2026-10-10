@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use unbundio_vault::{
     audit, csv_io,
     generator::GenOptions,
-    host,
-    vault::{NewEntry, Vault},
+    host, keychain,
+    vault::{NewEntry, Vault, Winner},
 };
 
-use cli::{Cli, Command};
+use cli::{Cli, Command, KeychainAction};
 
 fn default_vault_path(arg: Option<PathBuf>) -> PathBuf {
     if let Some(p) = arg {
@@ -27,8 +27,9 @@ fn default_vault_path(arg: Option<PathBuf>) -> PathBuf {
 
 /// Master password resolution order:
 /// 1. $UNBUNDIO_VAULT_PASSWORD  2. --password-file / $UNBUNDIO_VAULT_PASSWORD_FILE
-/// 3. stored host-password file (0600)  4. interactive prompt (no echo)
-fn read_password(password_file: Option<&Path>, confirm: bool) -> Result<String> {
+/// 3. stored host-password file (0600)  4. OS keychain (password-less)
+/// 5. interactive prompt (no echo)
+fn read_password(vault_path: &Path, password_file: Option<&Path>, confirm: bool) -> Result<String> {
     if let Ok(env) = std::env::var("UNBUNDIO_VAULT_PASSWORD") {
         if !env.is_empty() {
             return Ok(env);
@@ -51,6 +52,10 @@ fn read_password(password_file: Option<&Path>, confirm: bool) -> Result<String> 
     }
     if !confirm {
         if let Some(pw) = host::read_stored_password().map_err(|e| anyhow::anyhow!("{e}"))? {
+            return Ok(pw);
+        }
+        // Password-less: the OS keychain may already hold it.
+        if let Some(pw) = keychain::retrieve(vault_path).map_err(|e| anyhow::anyhow!("{e}"))? {
             return Ok(pw);
         }
     }
@@ -88,13 +93,40 @@ fn mask(pw: &str) -> String {
     format!("{}…({} chars)", &pw[..2], pw.len())
 }
 
+/// Chrome/Firefox launch a native-messaging host as `<binary> <origin>` — with
+/// **no subcommand**, and the manifest format has no way to add one. So the
+/// binary has to recognise that invocation itself and behave as `host`.
+/// (KeePassXC solves this with a dedicated `keepassxc-proxy` binary; we do it
+/// in the CLI so one binary covers both.)
+fn insert_implicit_host(argv: Vec<String>) -> Vec<String> {
+    const SCHEMES: &[&str] = &[
+        "chrome-extension://",
+        "moz-extension://",
+        "extension://",
+        "safari-web-extension://",
+    ];
+    let is_origin = argv
+        .get(1)
+        .map(|a| SCHEMES.iter().any(|s| a.starts_with(s)))
+        .unwrap_or(false);
+    if !is_origin {
+        return argv;
+    }
+    let mut out = Vec::with_capacity(argv.len() + 1);
+    out.push(argv[0].clone());
+    out.push("host".to_string());
+    out.extend(argv.into_iter().skip(1));
+    out
+}
+
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let argv = insert_implicit_host(std::env::args().collect());
+    let cli = Cli::parse_from(argv);
     let vault_path = default_vault_path(cli.vault);
 
     match cli.cmd {
         Command::Init {} => {
-            let pw = read_password(cli.password_file.as_deref(), true)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), true)?;
             Vault::create(&vault_path, &pw)?;
             println!("created {}", vault_path.display());
         }
@@ -130,7 +162,7 @@ fn main() -> Result<()> {
             length,
             no_symbols,
         } => {
-            let pw_master = read_password(cli.password_file.as_deref(), false)?;
+            let pw_master = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let mut vault = Vault::open(&vault_path, &pw_master)?;
             let title = match title {
                 Some(t) if !t.trim().is_empty() => t,
@@ -198,7 +230,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Get { query, show } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let vault = Vault::open(&vault_path, &pw)?;
             let hits = vault.find(&query);
             if hits.is_empty() {
@@ -254,7 +286,7 @@ fn main() -> Result<()> {
             }
         }
         Command::List { search, tag } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let vault = Vault::open(&vault_path, &pw)?;
             let mut entries: Vec<&unbundio_vault::Entry> = vault.data.entries.iter().collect();
             if let Some(q) = search {
@@ -296,7 +328,7 @@ fn main() -> Result<()> {
             notes,
             favorite,
         } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let mut vault = Vault::open(&vault_path, &pw)?;
             let hits = vault.find(&query);
             if hits.is_empty() {
@@ -337,14 +369,14 @@ fn main() -> Result<()> {
             println!("updated {id}");
         }
         Command::Rm { query } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let mut vault = Vault::open(&vault_path, &pw)?;
             let n = vault.remove(&query)?;
             vault.save(&pw)?;
             println!("removed {n}");
         }
         Command::Export { format, out } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let vault = Vault::open(&vault_path, &pw)?;
             eprintln!(
                 "warning: '{}' will contain PLAINTEXT secrets",
@@ -371,7 +403,7 @@ fn main() -> Result<()> {
             );
         }
         Command::Import { path } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let mut vault = Vault::open(&vault_path, &pw)?;
             let f = std::fs::File::open(&path)
                 .with_context(|| format!("cannot read {}", path.display()))?;
@@ -387,7 +419,7 @@ fn main() -> Result<()> {
             println!("imported {n} entries");
         }
         Command::Audit {} => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let vault = Vault::open(&vault_path, &pw)?;
             let rep = audit::audit(&vault.data.entries);
             if cli.json {
@@ -404,7 +436,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Passwd {} => {
-            let old = read_password(cli.password_file.as_deref(), false)?;
+            let old = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let vault = Vault::open(&vault_path, &old)?;
             if std::env::var("UNBUNDIO_VAULT_PASSWORD").is_ok() || cli.password_file.is_some() {
                 bail!("refusing to change password non-interactively (unset UNBUNDIO_VAULT_PASSWORD first)");
@@ -428,7 +460,7 @@ fn main() -> Result<()> {
             println!("master password changed");
         }
         Command::Backup { dir } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let vault = Vault::open(&vault_path, &pw)?;
             let dest_dir = match dir {
                 Some(d) => d,
@@ -453,7 +485,7 @@ fn main() -> Result<()> {
             direction,
             dry_run,
         } => {
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             let mut vault = Vault::open(&vault_path, &pw)?;
             let dir = direction.to_lowercase();
             if !matches!(dir.as_str(), "pull" | "push" | "both") {
@@ -463,10 +495,30 @@ fn main() -> Result<()> {
 
             if matches!(dir.as_str(), "pull" | "both") && remote.exists() {
                 let before = vault.data.entries.len();
-                let (added, updated) = vault.sync_pull(&remote, &pw)?;
+                let outcome = vault.sync_pull(&remote, &pw)?;
                 let total = vault.data.entries.len();
-                changed = added > 0 || updated > 0;
-                println!("pull: +{added} new, ~{updated} updated ({before} -> {total} entries)");
+                changed = outcome.added > 0 || outcome.updated > 0;
+                println!(
+                    "pull: +{} new, ~{} updated ({before} -> {total} entries)",
+                    outcome.added, outcome.updated
+                );
+                for c in &outcome.conflicts {
+                    let side = match c.winner {
+                        Winner::Remote => "remote kept",
+                        Winner::Local => "local kept",
+                    };
+                    let short = if c.id.len() > 8 { &c.id[..8] } else { &c.id };
+                    println!(
+                        "  conflict: {short}  {}  ({side}; review the other side if it mattered)",
+                        c.title
+                    );
+                }
+                if !outcome.conflicts.is_empty() {
+                    println!(
+                        "  note: a conflict is only a same-entry edit on both devices; \
+                         the loser is not recoverable from here"
+                    );
+                }
             } else if matches!(dir.as_str(), "pull" | "both") {
                 println!("pull: no remote at {} yet", remote.display());
             }
@@ -490,8 +542,9 @@ fn main() -> Result<()> {
             println!("remote: {}", remote.display());
         }
         Command::Host { .. } => {
-            // Browser-spawned: password must come from env/file (never the browser).
-            let pw = read_password(cli.password_file.as_deref(), false)?;
+            // Browser-spawned: the password comes from env / keychain / the
+            // 0600 file — never from the browser.
+            let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
             host::run(&vault_path, &pw)?;
         }
         Command::Manifest {
@@ -569,6 +622,50 @@ fn main() -> Result<()> {
             println!("  2. Load unpacked -> select this repo's extension/ folder");
             println!("  3. copy its ID and re-run this command with --extension-id <ID> --force");
             println!("  4. click the toolbar icon on any login page -> Fill");
+        }
+        Command::Keychain { action } => {
+            if !keychain::supported() {
+                bail!("the OS keychain is not available on this platform (macOS only in v0.1)");
+            }
+            match action {
+                KeychainAction::Save {} => {
+                    let pw = read_password(&vault_path, cli.password_file.as_deref(), false)?;
+                    // Prove the password really opens this vault before storing.
+                    let entries = Vault::open(&vault_path, &pw)?.data.entries.len();
+                    keychain::store(&vault_path, &pw).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    println!(
+                        "stored in the login keychain ({} entries verified). \
+                         later unlocks need no password.",
+                        entries
+                    );
+                    println!("remove it with: unbundio-vault keychain delete");
+                }
+                KeychainAction::Delete {} => {
+                    let removed =
+                        keychain::remove(&vault_path).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    println!(
+                        "{}",
+                        if removed {
+                            "keychain item removed"
+                        } else {
+                            "no keychain item for this vault"
+                        }
+                    );
+                }
+                KeychainAction::Status {} => {
+                    let found = keychain::retrieve(&vault_path)
+                        .map_err(|e| anyhow::anyhow!("{e}"))?
+                        .is_some();
+                    println!(
+                        "password-less unlock: {}",
+                        if found {
+                            "enabled (keychain holds the master password)"
+                        } else {
+                            "not configured"
+                        }
+                    );
+                }
+            }
         }
     }
     Ok(())

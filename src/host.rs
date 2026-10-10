@@ -150,6 +150,35 @@ impl Host {
                 }
                 Ok(full_entry(hits[0]))
             }
+            "audit" => {
+                let rep = crate::audit::audit(&self.data.entries);
+                Ok(json!({
+                    "total": rep.total,
+                    "weak": rep.weak,
+                    "reused": rep.reused,
+                    "old": rep.old,
+                    "without_url": rep.without_url,
+                    "favorites": rep.favorites,
+                }))
+            }
+            "gen" => {
+                let opts = crate::generator::GenOptions {
+                    length: req
+                        .get("length")
+                        .and_then(Value::as_u64)
+                        .map(|n| n as usize)
+                        .unwrap_or(20)
+                        .clamp(1, 256),
+                    uppercase: req.get("no_uppercase").and_then(Value::as_bool) != Some(true),
+                    lowercase: req.get("no_lowercase").and_then(Value::as_bool) != Some(true),
+                    digits: req.get("no_digits").and_then(Value::as_bool) != Some(true),
+                    symbols: req.get("no_symbols").and_then(Value::as_bool) != Some(true),
+                    exclude_ambiguous: req.get("exclude_ambiguous").and_then(Value::as_bool)
+                        == Some(true),
+                };
+                let pw = crate::generator::generate(&opts).map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok(json!({ "password": pw }))
+            }
             "reload" => {
                 let n = self.reload()?;
                 Ok(json!({ "entries": n }))
@@ -474,6 +503,22 @@ mod tests {
 
         let bad = host.handle(&json!({"id": 7, "action": "explode"}));
         assert_eq!(bad["ok"], false);
+
+        let audit = host.handle(&json!({"id": 11, "action": "audit"}));
+        assert_eq!(audit["ok"], true);
+        assert_eq!(audit["result"]["total"], 1);
+        assert!(audit["result"]["weak"].is_array());
+
+        let gen = host.handle(&json!({"id": 12, "action": "gen", "length": 24}));
+        assert_eq!(gen["ok"], true);
+        let pw = gen["result"]["password"].as_str().expect("password");
+        assert_eq!(pw.chars().count(), 24);
+
+        let short = host.handle(&json!({"id": 13, "action": "gen", "length": 0}));
+        assert_eq!(short["ok"], false, "length 0 must be refused, not panic");
+
+        let huge = host.handle(&json!({"id": 14, "action": "gen", "length": 9999}));
+        assert_eq!(huge["result"]["password"].as_str().map(str::len), Some(256));
 
         let noaction = host.handle(&json!({"id": 8}));
         assert_eq!(noaction["ok"], false);

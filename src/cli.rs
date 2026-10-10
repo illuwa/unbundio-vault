@@ -172,4 +172,19 @@ pub enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Manage password-less unlock in the OS keychain (macOS)
+    Keychain {
+        #[command(subcommand)]
+        action: KeychainAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum KeychainAction {
+    /// Put the master password into the login keychain (prompts, verifies first)
+    Save {},
+    /// Remove the stored item
+    Delete {},
+    /// Show whether a password-less unlock is configured
+    Status {},
 }

@@ -9,6 +9,7 @@ pub mod crypto;
 pub mod csv_io;
 pub mod generator;
 pub mod host;
+pub mod keychain;
 pub mod vault;
 
 pub use vault::{Entry, Vault};

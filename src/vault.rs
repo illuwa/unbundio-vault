@@ -42,6 +42,27 @@ impl Entry {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Winner {
+    Remote,
+    Local,
+}
+
+#[derive(Debug, Clone)]
+pub struct Conflict {
+    pub id: String,
+    pub title: String,
+    pub winner: Winner,
+}
+
+/// Result of a sync pull: what changed, and what both sides edited at once.
+#[derive(Debug, Clone, Default)]
+pub struct SyncOutcome {
+    pub added: usize,
+    pub updated: usize,
+    pub conflicts: Vec<Conflict>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VaultData {
     #[serde(default)]
@@ -242,28 +263,45 @@ impl Vault {
 
     /// Merge a remote published vault into this one (sync pull).
     ///
-    /// Union by entry id, latest `updated_at` wins on conflict, so two devices
-    /// that edited different entries both keep their change. The remote must
-    /// use the same master password (it is encrypted with it).
-    /// Returns (added, updated).
-    pub fn sync_pull(&mut self, remote: &Path, password: &str) -> Result<(usize, usize)> {
+    /// Entries are unioned by id. On a conflict the newer `updated_at` wins,
+    /// and the clash is reported so nothing is silently overwritten. The
+    /// remote must use the same master password (it is encrypted with it).
+    pub fn sync_pull(&mut self, remote: &Path, password: &str) -> Result<SyncOutcome> {
         let other = Vault::open(remote, password)?;
-        let (mut added, mut updated) = (0usize, 0usize);
+        let mut out = SyncOutcome::default();
         for e in other.data.entries {
             match self.data.entries.iter_mut().find(|x| x.id == e.id) {
                 Some(existing) => {
+                    let differs = existing.username != e.username
+                        || existing.password != e.password
+                        || existing.url != e.url
+                        || existing.notes != e.notes;
                     if e.updated_at > existing.updated_at {
+                        if differs {
+                            out.conflicts.push(Conflict {
+                                id: e.id.clone(),
+                                title: e.title.clone(),
+                                winner: Winner::Remote,
+                            });
+                        }
                         *existing = e;
-                        updated += 1;
+                        out.updated += 1;
+                    } else if differs && e.updated_at < existing.updated_at {
+                        // Local edit is newer: keep ours, but say so.
+                        out.conflicts.push(Conflict {
+                            id: e.id.clone(),
+                            title: existing.title.clone(),
+                            winner: Winner::Local,
+                        });
                     }
                 }
                 None => {
                     self.data.entries.push(e);
-                    added += 1;
+                    out.added += 1;
                 }
             }
         }
-        Ok((added, updated))
+        Ok(out)
     }
 }
 
@@ -364,8 +402,9 @@ mod tests {
 
         // Device B starts empty, pulls github.
         let mut b = Vault::create(&b_path, pw).expect("create b");
-        let (added, updated) = b.sync_pull(&remote, pw).expect("pull b");
-        assert_eq!((added, updated), (1, 0));
+        let o = b.sync_pull(&remote, pw).expect("pull b");
+        assert_eq!((o.added, o.updated), (1, 0));
+        assert!(o.conflicts.is_empty());
         assert_eq!(b.data.entries[0].title, "github");
 
         // B adds its own entry and pushes.
@@ -379,15 +418,17 @@ mod tests {
         b.sync_push(&remote).expect("push b");
 
         // A pulls: gains gmail, keeps github.
-        let (added, updated) = a.sync_pull(&remote, pw).expect("pull a");
-        assert_eq!((added, updated), (1, 0));
+        let o = a.sync_pull(&remote, pw).expect("pull a");
+        assert_eq!((o.added, o.updated), (1, 0));
+        assert!(o.conflicts.is_empty());
         assert_eq!(a.data.entries.len(), 2);
         let titles: Vec<&str> = a.data.entries.iter().map(|e| e.title.as_str()).collect();
         assert!(titles.contains(&"github") && titles.contains(&"gmail"));
 
         // Pulling again is a no-op (idempotent).
-        let (added, updated) = a.sync_pull(&remote, pw).expect("pull again");
-        assert_eq!((added, updated), (0, 0));
+        let o = a.sync_pull(&remote, pw).expect("pull again");
+        assert_eq!((o.added, o.updated), (0, 0));
+        assert!(o.conflicts.is_empty());
     }
 
     #[test]
@@ -419,11 +460,55 @@ mod tests {
         }
         remote_vault.save(pw).expect("save remote");
 
-        let (added, updated) = a.sync_pull(&remote, pw).expect("pull");
-        assert_eq!((added, updated), (0, 1));
+        let o = a.sync_pull(&remote, pw).expect("pull");
+        assert_eq!((o.added, o.updated), (0, 1));
+        assert_eq!(o.conflicts.len(), 1);
+        assert_eq!(o.conflicts[0].winner, Winner::Remote);
+        assert_eq!(o.conflicts[0].title, "site");
         let merged = a.data.entries.iter().find(|x| x.id == id).expect("entry");
         assert_eq!(merged.username, "new");
         assert_eq!(merged.password, "new-pw");
+    }
+
+    #[test]
+    fn sync_pull_reports_local_wins_conflict() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let a_path = dir.path().join("a.vault");
+        let remote = dir.path().join("shared.vault");
+        let pw = "pw";
+
+        let mut a = Vault::create(&a_path, pw).expect("create");
+        let id = a
+            .add(NewEntry {
+                title: "site".into(),
+                username: "u".into(),
+                password: "p".into(),
+                ..Default::default()
+            })
+            .id
+            .clone();
+        a.save(pw).expect("save");
+        a.sync_push(&remote).expect("push");
+
+        // Local is newer and different; remote is older and different.
+        if let Some(e) = a.data.entries.iter_mut().find(|x| x.id == id) {
+            e.password = "local-pw".into();
+            e.updated_at += 100;
+        }
+        a.save(pw).expect("save local");
+
+        let mut remote_vault = Vault::open(&remote, pw).expect("open remote");
+        if let Some(e) = remote_vault.data.entries.iter_mut().find(|x| x.id == id) {
+            e.password = "remote-pw".into();
+        }
+        remote_vault.save(pw).expect("save remote");
+
+        let o = a.sync_pull(&remote, pw).expect("pull");
+        assert_eq!((o.added, o.updated), (0, 0), "local stays untouched");
+        assert_eq!(o.conflicts.len(), 1);
+        assert_eq!(o.conflicts[0].winner, Winner::Local);
+        let kept = a.data.entries.iter().find(|x| x.id == id).expect("entry");
+        assert_eq!(kept.password, "local-pw");
     }
 
     #[test]
