@@ -14,6 +14,11 @@ cd unbundio-vault-0.1.0-macos-universal
 ./install.sh
 ```
 
+> **"확인되지 않은 개발자" 경고가 뜨면** (서명 없는 무료 배포라 정상):
+> Finder에서 `unbundio-vault` 우클릭 → **열기** → 다시 **열기** 클릭.
+> 1회만 하면 이후 터미널·브라우저에서 정상 실행됩니다.
+> 터미널 선호 시: `xattr -d com.apple.quarantine unbundio-vault`
+
 마스터 비밀번호를 두 번 입력하면 볼트가 만들어집니다
 (`~/unbundio-vault.vault`). 화면에 표시되지 않는 게 정상입니다.
 

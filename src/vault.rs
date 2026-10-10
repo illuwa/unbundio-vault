@@ -201,6 +201,25 @@ impl Vault {
             }
         }
     }
+
+    /// Copy the encrypted vault file to `dest` (still encrypted; safe to
+    /// upload anywhere). Used by `backup` and the file-based sync story.
+    pub fn backup_to(&self, dest: &Path) -> Result<()> {
+        if let Some(parent) = dest.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("cannot create dir {}", parent.display()))?;
+            }
+        }
+        std::fs::copy(&self.path, dest).with_context(|| {
+            format!(
+                "cannot back up {} to {}",
+                self.path.display(),
+                dest.display()
+            )
+        })?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -242,5 +261,40 @@ mod tests {
         let (_hold, path) = tmp_path();
         Vault::create(&path, "pw").expect("create");
         assert!(Vault::create(&path, "pw").is_err());
+    }
+
+    #[test]
+    fn backup_is_encrypted_and_restorable() {
+        let (_hold, path) = tmp_path();
+        let mut v = Vault::create(&path, "pw").expect("create");
+        v.add(NewEntry {
+            title: "github".into(),
+            username: "alice".into(),
+            password: "s3cret!".into(),
+            ..Default::default()
+        });
+        v.save("pw").expect("save");
+
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let dest = dir.path().join("nested").join("copy.vault");
+        v.backup_to(&dest).expect("backup");
+
+        // The backup file must not contain the plaintext secret.
+        let raw = std::fs::read_to_string(&dest).expect("read");
+        assert!(!raw.contains("s3cret!"), "backup must stay encrypted");
+        assert!(raw.contains("ciphertext"));
+
+        // …and it must open with the same master password.
+        let restored = Vault::open(&dest, "pw").expect("open backup");
+        assert_eq!(restored.data.entries.len(), 1);
+        assert_eq!(restored.data.entries[0].password, "s3cret!");
+    }
+
+    #[test]
+    fn backup_refuses_unwritable_destination() {
+        let (_hold, path) = tmp_path();
+        let v = Vault::create(&path, "pw").expect("create");
+        let dest = Path::new("/proc/definitely/not/writable/x.vault");
+        assert!(v.backup_to(dest).is_err());
     }
 }

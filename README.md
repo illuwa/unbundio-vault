@@ -110,6 +110,7 @@ password manager does.
 | `import --path export.csv` | Chrome/Dashlane/1Password CSV |
 | `audit [--json]` | weak / reused / old report |
 | `passwd` | change master password (re-encrypts) |
+| `backup [--dir DIR]` | timestamped copy of the encrypted vault |
 | `host` | serve the browser over Native Messaging stdio |
 | `manifest --extension-id …` | print host manifest JSON |
 | `install-extension --extension-id …` | install manifest + optional 0600 host password |
@@ -172,8 +173,14 @@ cargo fmt --check
 
 - [x] B-1 `host` (Native Messaging stdio) + `manifest` generator
 - [x] B-2 Chrome extension MVP (`extension/`: popup search → Fill/Copy) + `install-extension` (no server, 0600 host password with consent)
-- [ ] Real-browser trial (load unpacked → Fill on a live login page)
-- [ ] C-1 sync (reuse keep-my-password relay or file-based)
+- [x] Real-browser trial (load unpacked → Fill on a live login page)
+- [x] `backup` (encrypted, restorable — foundation for device-to-device sync)
+- [ ] C-1 sync decision: **file-based** (not the keep-my-password relay — that one
+      needs accounts/billing, which would break this project's free-forever,
+      account-free promise). Next: `sync push`/`sync pull` over a file or
+      user-chosen cloud folder, keeping E2EE (the server only ever sees the
+      already-encrypted vault file).
+- [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] `totp` field + `get --totp` (RFC 6238, local clock)
 - [ ] `unbundio-vault serve --port` loopback autofill helper (Type-to-app stays manual until then)

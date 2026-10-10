@@ -427,6 +427,27 @@ fn main() -> Result<()> {
             vault2.save(&new1)?;
             println!("master password changed");
         }
+        Command::Backup { dir } => {
+            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let vault = Vault::open(&vault_path, &pw)?;
+            let dest_dir = match dir {
+                Some(d) => d,
+                None => vault_path
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join("backups"),
+            };
+            let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+            let dest = dest_dir.join(format!("unbundio-vault-{stamp}.vault"));
+            vault.backup_to(&dest)?;
+            println!(
+                "backed up {} entries to {}",
+                vault.data.entries.len(),
+                dest.display()
+            );
+        }
         Command::Host { .. } => {
             // Browser-spawned: password must come from env/file (never the browser).
             let pw = read_password(cli.password_file.as_deref(), false)?;

@@ -116,6 +116,12 @@ pub enum Command {
     Audit {},
     /// Change the master password (re-encrypts with fresh salt)
     Passwd {},
+    /// Copy the (still encrypted) vault to a timestamped backup file
+    Backup {
+        /// Destination dir (default: <vault-dir>/backups)
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
     /// Serve the browser over Native Messaging stdio (spawned by the extension)
     Host {
         /// Ignored: browsers may append origin/window args; accepted for compat
