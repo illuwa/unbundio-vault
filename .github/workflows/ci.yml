@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all-features
+
+  # The vault core must stay buildable for phones: a mobile client is a thin
+  # native shell around this library, so a dependency that cannot cross-compile
+  # silently costs us the iOS/Android clients later.
+  mobile-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Build library for iOS (device)
+        run: cargo build --release --lib --target aarch64-apple-ios
+      - name: Build library for Android (arm64)
+        run: cargo build --release --lib --target aarch64-linux-android
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright + Chromium
+        run: |
+          npm i --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Build binary
+        run: cargo build
+      - name: Browser end-to-end (host protocol + content-script fill + popup)
+        run: node tests/browser-fill.mjs
