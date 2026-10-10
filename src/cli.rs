@@ -122,6 +122,17 @@ pub enum Command {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Sync with a shared encrypted vault file (push / pull / both)
+    Sync {
+        /// Shared vault file path (a synced folder, or a private cloud dir)
+        remote: PathBuf,
+        /// Direction (default: both = pull then push)
+        #[arg(long, default_value = "both")]
+        direction: String,
+        /// Do not re-encrypt/save after pulling
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Serve the browser over Native Messaging stdio (spawned by the extension)
     Host {
         /// Ignored: browsers may append origin/window args; accepted for compat

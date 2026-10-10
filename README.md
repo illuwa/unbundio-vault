@@ -111,12 +111,37 @@ password manager does.
 | `audit [--json]` | weak / reused / old report |
 | `passwd` | change master password (re-encrypts) |
 | `backup [--dir DIR]` | timestamped copy of the encrypted vault |
+| `sync <REMOTE> [--direction]` | push/pull/both against a shared encrypted vault file |
 | `host` | serve the browser over Native Messaging stdio |
 | `manifest --extension-id …` | print host manifest JSON |
 | `install-extension --extension-id …` | install manifest + optional 0600 host password |
 
 Global: `--vault <path>`, `--password-file <path>`, `--json`,
 `$UNBUNDIO_VAULT`, `$UNBUNDIO_VAULT_PASSWORD`.
+
+## Sync across your own devices
+
+`remote` is **any shared folder** — a synced cloud folder (iCloud Drive,
+Syncthing, Dropbox…), a USB stick, an S3 bucket you mount. There is no
+unbundio server, no account, no plan: only your already-encrypted vault file
+moves, so a folder provider sees ciphertext and nothing else.
+
+```sh
+unbundio-vault sync ~/Library/Mobile\ Documents/com.unbundio.vault/sync.vault
+unbundio-vault sync ~/sync.vault --direction pull   # fetch only
+unbundio-vault sync ~/sync.vault --direction push   # publish only
+unbundio-vault sync ~/sync.vault --dry-run          # report, change nothing
+```
+
+How it works: entries are merged by id, and on a conflict the newer
+`updated_at` wins, so two devices that edited *different* entries both keep
+their change. Both sides must use the **same master password** (the file is
+encrypted with it). Pulling is idempotent — running it twice adds nothing.
+
+Honest limits: no per-entry history, and two devices editing the *same*
+entry offline keep the later change only (last-writer-wins, not a 3-way
+merge). Good enough for one person's devices; not a team-sharing model —
+that is `keep-my-password`'s job.
 
 ## Browser integration (B-1: native host)
 
@@ -174,12 +199,12 @@ cargo fmt --check
 - [x] B-1 `host` (Native Messaging stdio) + `manifest` generator
 - [x] B-2 Chrome extension MVP (`extension/`: popup search → Fill/Copy) + `install-extension` (no server, 0600 host password with consent)
 - [x] Real-browser trial (load unpacked → Fill on a live login page)
-- [x] `backup` (encrypted, restorable — foundation for device-to-device sync)
-- [ ] C-1 sync decision: **file-based** (not the keep-my-password relay — that one
-      needs accounts/billing, which would break this project's free-forever,
-      account-free promise). Next: `sync push`/`sync pull` over a file or
-      user-chosen cloud folder, keeping E2EE (the server only ever sees the
-      already-encrypted vault file).
+- [x] `backup` (encrypted, restorable)
+- [x] C-1 sync: file-based `sync push/pull` over any shared folder — no unbundio
+      server, no accounts. (Rejected relay reuse: keep-my-password's relay needs
+      accounts + billing, which would break this project's free-forever promise.)
+      Merge = union by entry id, newer `updated_at` wins.
+- [ ] Conflict UX: report same-entry conflicts instead of silently last-writer-wins
 - [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] `totp` field + `get --totp` (RFC 6238, local clock)

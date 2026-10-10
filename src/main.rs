@@ -448,6 +448,47 @@ fn main() -> Result<()> {
                 dest.display()
             );
         }
+        Command::Sync {
+            remote,
+            direction,
+            dry_run,
+        } => {
+            let pw = read_password(cli.password_file.as_deref(), false)?;
+            let mut vault = Vault::open(&vault_path, &pw)?;
+            let dir = direction.to_lowercase();
+            if !matches!(dir.as_str(), "pull" | "push" | "both") {
+                bail!("unknown --direction '{direction}' (pull|push|both)");
+            }
+            let mut changed = false;
+
+            if matches!(dir.as_str(), "pull" | "both") && remote.exists() {
+                let before = vault.data.entries.len();
+                let (added, updated) = vault.sync_pull(&remote, &pw)?;
+                let total = vault.data.entries.len();
+                changed = added > 0 || updated > 0;
+                println!("pull: +{added} new, ~{updated} updated ({before} -> {total} entries)");
+            } else if matches!(dir.as_str(), "pull" | "both") {
+                println!("pull: no remote at {} yet", remote.display());
+            }
+
+            if matches!(dir.as_str(), "push" | "both") {
+                if changed {
+                    vault.save(&pw)?;
+                }
+                vault.sync_push(&remote)?;
+                println!(
+                    "push: published {} entries (encrypted)",
+                    vault.data.entries.len()
+                );
+            }
+
+            if changed && dry_run {
+                println!("dry-run: local vault left unchanged");
+            } else if changed {
+                vault.save(&pw)?;
+            }
+            println!("remote: {}", remote.display());
+        }
         Command::Host { .. } => {
             // Browser-spawned: password must come from env/file (never the browser).
             let pw = read_password(cli.password_file.as_deref(), false)?;
