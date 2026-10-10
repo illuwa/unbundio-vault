@@ -221,11 +221,15 @@ that grants `activeTab`, which Chrome only grants from a real user gesture.
 - [x] pw-less unlock via the macOS keychain (`keychain save`), no crate deps
 - [x] popup: generator, audit summary, keyboard navigation, autoselect by site
 - [x] browser e2e harness (`tests/browser-fill.mjs`, 14 checks in real Chromium)
-- [ ] C-2 mobile. Foundation verified: the library cross-compiles for
-      `aarch64-apple-ios`, `aarch64-linux-android` and `armv7-linux-androideabi`,
-      and CI enforces it. A phone client needs no server — it uses the same
-      vault file and the same sync merge — but it does need native shells for
-      biometrics and OS autofill. See [docs/mobile-contract.md](docs/mobile-contract.md).
+- [ ] C-2 mobile. **Core + iOS shell are built**: the library cross-compiles for
+      `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-linux-android` and
+      `armv7-linux-androideabi`, exposed over a C ABI (`src/ffi.rs`), with a
+      SwiftUI shell in [`mobile/ios/`](mobile/ios) that unlocks with Face ID,
+      searches, reveals and copies, plus a generator. CI builds all targets and
+      checks the header against the Rust exports. **Not yet done:** running it in
+      a simulator/phone (needs an Xcode project + signing), Android shell, and
+      the OS autofill providers (`ASCredentialProviderExtension`,
+      `AutofillService`). See [docs/mobile-contract.md](docs/mobile-contract.md).
 - [ ] C-2 mobile (shared Rust core + thin native UI, biometrics, OS autofill)
 - [ ] `totp` field + `get --totp` (RFC 6238, local clock)
 - [ ] `unbundio-vault serve --port` loopback autofill helper (Type-to-app stays manual until then)

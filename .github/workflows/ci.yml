@@ -25,17 +25,23 @@ jobs:
   # native shell around this library, so a dependency that cannot cross-compile
   # silently costs us the iOS/Android clients later.
   mobile-core:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios, aarch64-linux-android
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim, aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
-      - name: Build library for iOS (device)
-        run: cargo build --release --lib --target aarch64-apple-ios
+      - name: Build library for iOS (device + simulator)
+        run: |
+          cargo build --release --lib --target aarch64-apple-ios
+          cargo build --release --lib --target aarch64-apple-ios-sim
       - name: Build library for Android (arm64)
         run: cargo build --release --lib --target aarch64-linux-android
+      - name: Compile the Swift shell against the C ABI
+        run: ./mobile/ios/build.sh sim
+      - name: C header and Rust exports must agree
+        run: ./mobile/ios/check-abi.sh
 
   browser-e2e:
     runs-on: ubuntu-latest

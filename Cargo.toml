@@ -15,6 +15,11 @@ path = "src/main.rs"
 [lib]
 name = "unbundio_vault"
 path = "src/lib.rs"
+# staticlib backs the native mobile shells (iOS/Android) via the C ABI in
+# src/ffi.rs. Deliberately no `cdylib`: producing a .so needs a platform linker
+# (Xcode / Android NDK) even for `--lib`, which would break cross-compiling the
+# core on a plain CI machine. Native shells link the static archive instead.
+crate-type = ["lib", "staticlib"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

@@ -8,8 +8,13 @@
 //! Other platforms: not implemented here. `status` reports it honestly rather
 //! than pretending.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use std::path::Path;
+
+// macOS-only paths; the non-macOS stubs below must not drag these in.
+#[cfg(target_os = "macos")]
+use anyhow::Context;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 pub const SERVICE: &str = "com.unbundio.vault";
